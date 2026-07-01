@@ -1,0 +1,89 @@
+"""Load pretrained OpenAI GPT-2 weights into a :class:`~src.model.GPTModel`.
+
+The ``params`` dictionary is the nested structure produced by the reference
+``download_and_load_gpt2`` helper (from the "LLM from scratch" materials): it
+contains ``wte``, ``wpe``, per-block ``attn``/``mlp``/``ln`` weights, and the
+final ``g``/``b`` layer-norm parameters.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import torch
+
+
+def assign(left: torch.nn.Parameter, right) -> torch.nn.Parameter:
+    """Return ``right`` as a Parameter, checking it matches ``left``'s shape."""
+    if left.shape != right.shape:
+        raise ValueError(f"Shape mismatch. Left: {left.shape}, Right: {right.shape}")
+    return torch.nn.Parameter(torch.tensor(right))
+
+
+def load_weights_into_gpt(gpt, params: dict) -> None:
+    """Copy pretrained GPT-2 ``params`` into ``gpt`` in place."""
+    gpt.pos_emb.weight = assign(gpt.pos_emb.weight, params["wpe"])
+    gpt.tok_emb.weight = assign(gpt.tok_emb.weight, params["wte"])
+
+    for b in range(len(params["blocks"])):
+        block = params["blocks"][b]
+
+        # Attention: the fused QKV weight/bias is split into three parts.
+        q_w, k_w, v_w = np.split(block["attn"]["c_attn"]["w"], 3, axis=-1)
+        gpt.trf_blocks[b].att.W_query.weight = assign(
+            gpt.trf_blocks[b].att.W_query.weight, q_w.T
+        )
+        gpt.trf_blocks[b].att.W_key.weight = assign(
+            gpt.trf_blocks[b].att.W_key.weight, k_w.T
+        )
+        gpt.trf_blocks[b].att.W_value.weight = assign(
+            gpt.trf_blocks[b].att.W_value.weight, v_w.T
+        )
+
+        q_b, k_b, v_b = np.split(block["attn"]["c_attn"]["b"], 3, axis=-1)
+        gpt.trf_blocks[b].att.W_query.bias = assign(
+            gpt.trf_blocks[b].att.W_query.bias, q_b
+        )
+        gpt.trf_blocks[b].att.W_key.bias = assign(gpt.trf_blocks[b].att.W_key.bias, k_b)
+        gpt.trf_blocks[b].att.W_value.bias = assign(
+            gpt.trf_blocks[b].att.W_value.bias, v_b
+        )
+
+        gpt.trf_blocks[b].att.out_proj.weight = assign(
+            gpt.trf_blocks[b].att.out_proj.weight, block["attn"]["c_proj"]["w"].T
+        )
+        gpt.trf_blocks[b].att.out_proj.bias = assign(
+            gpt.trf_blocks[b].att.out_proj.bias, block["attn"]["c_proj"]["b"]
+        )
+
+        # Feed-forward network.
+        gpt.trf_blocks[b].ff.layers[0].weight = assign(
+            gpt.trf_blocks[b].ff.layers[0].weight, block["mlp"]["c_fc"]["w"].T
+        )
+        gpt.trf_blocks[b].ff.layers[0].bias = assign(
+            gpt.trf_blocks[b].ff.layers[0].bias, block["mlp"]["c_fc"]["b"]
+        )
+        gpt.trf_blocks[b].ff.layers[2].weight = assign(
+            gpt.trf_blocks[b].ff.layers[2].weight, block["mlp"]["c_proj"]["w"].T
+        )
+        gpt.trf_blocks[b].ff.layers[2].bias = assign(
+            gpt.trf_blocks[b].ff.layers[2].bias, block["mlp"]["c_proj"]["b"]
+        )
+
+        # Layer norms.
+        gpt.trf_blocks[b].norm1.scale = assign(
+            gpt.trf_blocks[b].norm1.scale, block["ln_1"]["g"]
+        )
+        gpt.trf_blocks[b].norm1.shift = assign(
+            gpt.trf_blocks[b].norm1.shift, block["ln_1"]["b"]
+        )
+        gpt.trf_blocks[b].norm2.scale = assign(
+            gpt.trf_blocks[b].norm2.scale, block["ln_2"]["g"]
+        )
+        gpt.trf_blocks[b].norm2.shift = assign(
+            gpt.trf_blocks[b].norm2.shift, block["ln_2"]["b"]
+        )
+
+    # Final layer norm and (weight-tied) output head.
+    gpt.final_norm.scale = assign(gpt.final_norm.scale, params["g"])
+    gpt.final_norm.shift = assign(gpt.final_norm.shift, params["b"])
+    gpt.out_head.weight = assign(gpt.out_head.weight, params["wte"])

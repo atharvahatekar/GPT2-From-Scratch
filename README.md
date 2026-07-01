@@ -1,64 +1,47 @@
 # LLM From Scratch
 
-A ground-up implementation of a GPT-style Large Language Model trained on the Harry Potter book series. Each stage is built independently — no high-level ML frameworks used for the core model logic, only PyTorch primitives and NumPy.
+A ground-up, modular implementation of a **GPT-style Large Language Model** in
+PyTorch — no high-level ML frameworks for the core model logic, only PyTorch
+primitives and NumPy. Every component (tokenizer, attention, transformer blocks,
+training loop, text generation) is written from scratch and organized as a clean,
+importable Python package under [`src/`](src/).
 
-> **Status:** Stage 1 complete — tokenization pipeline and data loading. Stages 2–4 in progress.
-
----
-
-## Project Roadmap
-
-| Stage | Topic | Status |
-|-------|-------|--------|
-| 1 | Tokenization, Embeddings & Data Pipeline | ✅ Complete |
-| 2 | Attention Mechanism (Scaled Dot-Product, Multi-Head) | 🔄 In Progress |
-| 3 | GPT Architecture (Transformer Blocks, Layer Norm, Feed-Forward) | 🔜 Planned |
-| 4 | Pre-training & Text Generation | 🔜 Planned |
+The model is designed to be trained on the Harry Potter book series, but works on
+any plain-text corpus.
 
 ---
 
-## Stage 1 — Tokenization & Data Pipeline
-
-### `stage1_tokenization/`
-
-| File | Description |
-|------|-------------|
-| `Tokenizer_V1.py` | Rule-based tokenizer using regex splits. Builds a vocabulary from raw text and supports encode/decode. |
-| `Tokenizer_V2.py` | Extended V1 with `<\|unk\|>` and `<\|endoftext\|>` special token support for out-of-vocabulary handling. |
-| `BPE_Tokenizer.py` | Byte Pair Encoding tokenizer wrapping OpenAI's `tiktoken` (GPT-2 encoding). Supports batch encode/decode. |
-| `dataset_loader.py` | PyTorch `Dataset` + `DataLoader` using a sliding window strategy to create input/target sequence pairs. |
-| `token_embeddings.py` | Token embedding layer mapping token IDs to dense vectors (in progress). |
-
-### How the data pipeline works
+## Project Structure
 
 ```
-Raw text  →  BPETokenizer.encode()  →  token IDs
-                                           ↓
-                              GPTDataset (sliding window)
-                           [tok_0, tok_1, ... tok_N]   ← input
-                           [tok_1, tok_2, ... tok_N+1] ← target
-                                           ↓
-                              DataLoader (batched)
-```
+src/
+├── config.py                 # GPT-2 hyperparameter presets + get_config()
+├── tokenizer/
+│   ├── simple_tokenizer.py   # Rule-based tokenizers (V1, V2) built from scratch
+│   └── bpe_tokenizer.py      # BPE tokenizer wrapping tiktoken (GPT-2)
+├── data/
+│   └── dataset.py            # Sliding-window GPTDataset + create_dataloader()
+├── model/
+│   ├── attention.py          # Multi-head causal self-attention
+│   ├── layers.py             # LayerNorm, GELU, FeedForward
+│   ├── transformer.py        # TransformerBlock (pre-norm + residuals)
+│   └── gpt.py                # GPTModel (full architecture)
+├── generation/
+│   └── generate.py           # Greedy + top-k/temperature sampling
+├── training/
+│   ├── losses.py             # Cross-entropy loss helpers
+│   └── trainer.py            # Pretraining loop + evaluation
+└── utils/
+    ├── checkpoint.py         # Save/load model + optimizer state
+    ├── plotting.py           # Loss curve plotting
+    └── gpt2_weights.py       # Load pretrained OpenAI GPT-2 weights
 
-The sliding window creates overlapping context windows with configurable `max_length` and `stride`, matching the pre-training data format used in GPT-2.
+scripts/
+├── train.py                  # End-to-end pretraining CLI
+└── generate.py               # Text generation CLI
 
----
-
-## Notebooks
-
-Step-by-step Jupyter notebooks documenting the learning process behind each component, with explanations, visualizations, and experiments.
-
-```
-notebooks/stage1_tokenization/
-├── 01_tokenizer.ipynb           # Rule-based tokenization from scratch
-├── 02_bpe_tokenizer.ipynb       # Byte Pair Encoding deep dive
-├── 03_data_loader.ipynb         # Sliding window dataset construction
-├── 04_vector_embeddings.ipynb   # Dense vector representations
-├── 05_token_embeddings.ipynb    # Token embedding layer
-├── 06_position_embeddings.ipynb # Positional encoding
-├── 07_attention_mechanism.ipynb # Self-attention from scratch
-└── 08_llm_architecture.ipynb    # Full GPT block architecture
+learning-code-files/          # Original step-by-step learning notebooks
+Notebooks/                    # Cleaned-up notebooks per component
 ```
 
 ---
@@ -74,29 +57,95 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### Dataset
-
-The model trains on the Harry Potter book series. The dataset files are not included in this repository due to size and copyright. Place your text files in a `data/` directory — see [data/README.md](data/README.md) for details.
-
 ---
 
 ## Quick Start
 
+### Build and run the model
+
 ```python
-from stage1_tokenization.BPE_Tokenizer import BPETokenizer
-from stage1_tokenization.dataset_loader import create_dataloader
+import torch
+from src import GPTModel, get_config, BPETokenizer, create_dataloader
+from src import generate_text_simple, text_to_token_ids, token_ids_to_text
 
-with open("data/all_harry_potter.txt", "r", encoding="utf-8") as f:
-    text = f.read()
+# 1. Configure a model (GPT-2 small by default; override any hyperparameter)
+cfg = get_config("gpt2-small (124M)", context_length=256)
+model = GPTModel(cfg)
+print(f"Parameters: {model.num_params():,}")
 
+# 2. Tokenize + build a dataloader with a sliding window
 tokenizer = BPETokenizer()
-dataloader = create_dataloader(text, batch_size=4, max_length=256, stride=128)
+text = open("data/the-verdict.txt", encoding="utf-8").read()
+loader = create_dataloader(text, tokenizer=tokenizer,
+                           batch_size=4, max_length=256, stride=128)
 
-for input_ids, target_ids in dataloader:
-    print("Input shape:", input_ids.shape)   # [4, 256]
-    print("Target shape:", target_ids.shape) # [4, 256]
-    break
+# 3. Generate text
+idx = text_to_token_ids("Every effort moves you", tokenizer)
+out = generate_text_simple(model, idx, max_new_tokens=10,
+                           context_size=cfg["context_length"])
+print(token_ids_to_text(out, tokenizer))
 ```
+
+### Train from the command line
+
+```bash
+python scripts/train.py --data data/the-verdict.txt --epochs 10 --context-length 256
+```
+
+### Generate from a checkpoint
+
+```bash
+python scripts/generate.py --checkpoint model.pth --prompt "Every effort" \
+    --max-new-tokens 50 --temperature 1.0 --top-k 25
+```
+
+---
+
+## How the Pipeline Works
+
+```
+Raw text  →  BPETokenizer.encode()  →  token IDs
+                                           ↓
+                          GPTDataset (sliding window)
+                       [tok_0 … tok_N]     ← input
+                       [tok_1 … tok_N+1]   ← target (shifted by 1)
+                                           ↓
+                          DataLoader → GPTModel → logits
+                                           ↓
+                          cross-entropy loss → AdamW → repeat
+```
+
+The **GPTModel** stacks token + positional embeddings, `n_layers`
+`TransformerBlock`s (each = pre-norm multi-head causal attention + feed-forward
+with residual connections), a final LayerNorm, and an output projection to
+vocabulary logits.
+
+---
+
+## Using Pretrained GPT-2 Weights
+
+The architecture is weight-compatible with OpenAI's GPT-2. Given the `params`
+dictionary from the reference `download_and_load_gpt2` loader:
+
+```python
+from src import GPTModel, get_config
+from src.utils import load_weights_into_gpt
+
+cfg = get_config("gpt2-small (124M)", context_length=1024, qkv_bias=True)
+model = GPTModel(cfg)
+load_weights_into_gpt(model, params)   # copies pretrained weights in place
+```
+
+---
+
+## Project Roadmap
+
+| Stage | Topic | Status |
+|-------|-------|--------|
+| 1 | Tokenization, Embeddings & Data Pipeline | ✅ |
+| 2 | Attention Mechanism (Scaled Dot-Product, Multi-Head) | ✅ |
+| 3 | GPT Architecture (Transformer Blocks, LayerNorm, Feed-Forward) | ✅ |
+| 4 | Pre-training & Text Generation | ✅ |
 
 ---
 
@@ -106,6 +155,6 @@ for input_ids, target_ids in dataloader:
 |---------|---------|
 | `torch` | Tensor ops, Dataset/DataLoader, model layers |
 | `tiktoken` | GPT-2 BPE tokenizer (OpenAI) |
+| `numpy` | Numerical utilities, weight loading |
+| `matplotlib` | Training loss visualization |
 | `regex` | Advanced pattern matching for rule-based tokenizer |
-| `numpy` | Numerical utilities |
-| `pandas` / `pyarrow` | Dataset inspection and Parquet support |
