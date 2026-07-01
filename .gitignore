@@ -431,9 +431,9 @@ FodyWeavers.xsd
 
 
 .venv/
-.vscode
-data/*.txt
-data/*.parquet
+.vscode/
+data/
+*.csv
 Notebooks/
 
 # LLM training & notebook artifacts
