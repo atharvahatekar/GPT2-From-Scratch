@@ -3,13 +3,11 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white)
 ![Model](https://img.shields.io/badge/Architecture-GPT--2-7B61FF)
-![Status](https://img.shields.io/badge/Status-Working%20Project-2EA44F)
+![Status](https://img.shields.io/badge/Status-Completed-2EA44F)
 
 A learning-first implementation of a GPT-style language model in PyTorch, taken all the way from tokenization and causal self-attention to pretraining, pretrained GPT-2 weight loading, spam classification, instruction fine-tuning, and LLM-as-a-judge evaluation.
 
 The reusable model code under [`src/`](src/) is built from PyTorch primitives rather than `nn.Transformer` or a high-level model library. The project makes the machinery visible: token and positional embeddings, multi-head causal attention, pre-normalized transformer blocks, next-token loss, autoregressive decoding, checkpointing, and task-specific fine-tuning.
-
-> This repository is an educational implementation, not a production-scale training framework. Its purpose is to understand and exercise the complete GPT workflow without hiding the important parts.
 
 ## What I built
 
@@ -39,15 +37,6 @@ flowchart LR
     G --> J[Instruction fine-tuning]
     H --> K[Spam classification]
 ```
-
-Each transformer block follows:
-
-```text
-x -> LayerNorm -> causal multi-head attention -> dropout -> + residual
-  -> LayerNorm -> 4x feed-forward + GELU     -> dropout -> + residual
-```
-
-The causal mask prevents every position from attending to future tokens. Training targets are the same token sequence shifted one position to the right.
 
 ## Recorded experiments
 
